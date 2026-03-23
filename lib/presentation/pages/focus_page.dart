@@ -54,7 +54,16 @@ class FocusPage extends ConsumerWidget {
                     targetMinutes: state.targetMinutes,
                   ),
 
-                  const SizedBox(height: 48),
+                  // Indicador de calidad (durante la sesión)
+                  if (state.isRunning) ...[
+                    const SizedBox(height: 16),
+                    _QualityIndicator(
+                      interruptions: state.interruptions,
+                      score: state.qualityScore,
+                    ),
+                  ],
+
+                  const SizedBox(height: 32),
 
                   // Botones
                   if (!state.isRunning)
@@ -94,6 +103,56 @@ class FocusPage extends ConsumerWidget {
     );
   }
 }
+
+// ─── Quality Indicator ────────────────────────────────────────────────────
+
+class _QualityIndicator extends StatelessWidget {
+  final int interruptions;
+  final int score;
+  const _QualityIndicator(
+      {required this.interruptions, required this.score});
+
+  Color _scoreColor(BuildContext context) {
+    if (score >= 80) return Colors.green;
+    if (score >= 50) return Colors.orange;
+    return Theme.of(context).colorScheme.error;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: _scoreColor(context).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: _scoreColor(context).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.bolt,
+              color: _scoreColor(context), size: 18),
+          const SizedBox(width: 6),
+          Text('Score: $score',
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _scoreColor(context))),
+          const SizedBox(width: 16),
+          Icon(Icons.warning_amber_outlined,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 16),
+          const SizedBox(width: 4),
+          Text('$interruptions interrupcion${interruptions == 1 ? '' : 'es'}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Focus Ring ───────────────────────────────────────────────────────────
 
 class _FocusRing extends StatelessWidget {
   final double progress;
@@ -151,8 +210,8 @@ class _FocusRing extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant)),
               ] else ...[
                 Text('${targetMinutes}m',
-                    style: theme.textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.bold)),
+                    style: theme.textTheme.displaySmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 Text('de foco',
                     style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant)),
@@ -179,9 +238,8 @@ class _RingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2 - 12;
-    final stroke = 12.0;
+    const stroke = 12.0;
 
-    // Track
     canvas.drawCircle(
         center,
         radius,
@@ -190,7 +248,6 @@ class _RingPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = stroke);
 
-    // Progress arc
     canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         -math.pi / 2,
@@ -208,31 +265,53 @@ class _RingPainter extends CustomPainter {
       old.progress != progress || old.color != color;
 }
 
+// ─── Resumen del día ──────────────────────────────────────────────────────
+
 class _TodayFocusSummary extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final today = DateTime.now();
     final date = DateTime(today.year, today.month, today.day);
-    final sessionsAsync = ref.watch(
-        FutureProvider.family<List<dynamic>, DateTime>((ref, d) async {
-      return ref.read(focusRepoProvider).getSessionsForDay(d);
-    })(date));
+    final sessionsAsync = ref.watch(focusSessionsDailyProvider(date));
 
     return sessionsAsync.when(
       data: (sessions) {
         final completed = sessions.where((s) => s.completed).length;
-        final totalMin =
-            sessions.fold<int>(0, (a, s) => a + (s.targetMinutes as int));
+        final totalMin = sessions
+            .fold<int>(0, (a, s) => a + s.targetMinutes);
+        final avgScore = sessions.isEmpty
+            ? null
+            : sessions
+                    .where((s) => s.completed)
+                    .fold<int>(0, (acc, s) => acc + 100) ~/
+                sessions.length; // simplificado
+
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            child: Column(
               children: [
-                _MiniStat(
-                    label: 'Sesiones hoy', value: '${sessions.length}'),
-                _MiniStat(label: 'Completadas', value: '$completed'),
-                _MiniStat(label: 'Minutos focales', value: '$totalMin'),
+                Text('Hoy',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _MiniStat(
+                        label: 'Sesiones', value: '${sessions.length}'),
+                    _MiniStat(
+                        label: 'Completadas', value: '$completed'),
+                    _MiniStat(
+                        label: 'Minutos',
+                        value: '$totalMin'),
+                    if (avgScore != null)
+                      _MiniStat(
+                          label: 'Score', value: '$avgScore'),
+                  ],
+                ),
               ],
             ),
           ),
@@ -260,7 +339,8 @@ class _MiniStat extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.bold)),
         Text(label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                color:
+                    Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
     );
   }

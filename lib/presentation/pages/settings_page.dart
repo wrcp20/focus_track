@@ -8,6 +8,8 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -17,7 +19,7 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          // Rastreo (solo Windows)
+          // ── Rastreo (solo Windows) ──
           if (!kIsWeb) ...[
             _SectionHeader('Rastreo automático'),
             Card(
@@ -59,47 +61,65 @@ class SettingsPage extends ConsumerWidget {
             const SizedBox(height: 24),
           ],
 
-          // Foco
+          // ── Apariencia ──
+          _SectionHeader('Apariencia'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.palette_outlined, size: 20),
+                      const SizedBox(width: 12),
+                      Text('Tema',
+                          style: Theme.of(context).textTheme.bodyMedium),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<ThemeMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ThemeMode.system,
+                        label: Text('Sistema'),
+                        icon: Icon(Icons.brightness_auto_outlined),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        label: Text('Claro'),
+                        icon: Icon(Icons.light_mode_outlined),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        label: Text('Oscuro'),
+                        icon: Icon(Icons.dark_mode_outlined),
+                      ),
+                    ],
+                    selected: {themeMode},
+                    onSelectionChanged: (s) =>
+                        ref.read(themeModeProvider.notifier).state = s.first,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Sesiones de Foco ──
           _SectionHeader('Sesiones de Foco'),
           Card(
             child: Column(
               children: [
-                ListTile(
-                  title: const Text('Duración predeterminada'),
-                  subtitle: const Text('25 minutos (Pomodoro clásico)'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
-                ),
+                _FocusDurationTile(ref: ref),
                 const Divider(height: 1),
-                ListTile(
-                  title: const Text('Duración del descanso'),
-                  subtitle: const Text('5 minutos'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
-                ),
+                _BreakDurationTile(ref: ref),
               ],
             ),
           ),
           const SizedBox(height: 24),
 
-          // Apariencia
-          _SectionHeader('Apariencia'),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: const Text('Tema'),
-                  subtitle: const Text('Sigue el sistema'),
-                  leading: const Icon(Icons.palette_outlined),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {},
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Acerca de
+          // ── Acerca de ──
           _SectionHeader('Acerca de'),
           Card(
             child: Column(
@@ -112,7 +132,8 @@ class SettingsPage extends ConsumerWidget {
                 const Divider(height: 1),
                 ListTile(
                   title: const Text('Plataforma'),
-                  subtitle: Text(kIsWeb ? 'Web (modo dashboard)' : 'Windows Desktop'),
+                  subtitle: Text(
+                      kIsWeb ? 'Web (modo dashboard)' : 'Windows Desktop'),
                   leading: Icon(
                       kIsWeb ? Icons.web : Icons.desktop_windows_outlined),
                 ),
@@ -124,6 +145,82 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 }
+
+// ── Focus duration tile ──────────────────────────────────────────────────────
+
+class _FocusDurationTile extends ConsumerWidget {
+  const _FocusDurationTile({required this.ref});
+  final WidgetRef ref;
+
+  static const _options = [15, 20, 25, 30, 45, 60];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settingsAsync = ref.watch(settingsProvider);
+    final current = int.tryParse(
+            settingsAsync.value?['focus_duration'] ?? '') ??
+        25;
+
+    return ListTile(
+      title: const Text('Duración de foco'),
+      subtitle: Text('$current minutos'),
+      leading: const Icon(Icons.timer_outlined),
+      trailing: DropdownButton<int>(
+        value: _options.contains(current) ? current : 25,
+        underline: const SizedBox(),
+        items: _options
+            .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
+            .toList(),
+        onChanged: (v) {
+          if (v != null) {
+            ref
+                .read(settingsProvider.notifier)
+                .set('focus_duration', '$v');
+          }
+        },
+      ),
+    );
+  }
+}
+
+// ── Break duration tile ──────────────────────────────────────────────────────
+
+class _BreakDurationTile extends ConsumerWidget {
+  const _BreakDurationTile({required this.ref});
+  final WidgetRef ref;
+
+  static const _options = [5, 10, 15, 20];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settingsAsync = ref.watch(settingsProvider);
+    final current = int.tryParse(
+            settingsAsync.value?['break_duration'] ?? '') ??
+        5;
+
+    return ListTile(
+      title: const Text('Duración del descanso'),
+      subtitle: Text('$current minutos'),
+      leading: const Icon(Icons.coffee_outlined),
+      trailing: DropdownButton<int>(
+        value: _options.contains(current) ? current : 5,
+        underline: const SizedBox(),
+        items: _options
+            .map((m) => DropdownMenuItem(value: m, child: Text('$m min')))
+            .toList(),
+        onChanged: (v) {
+          if (v != null) {
+            ref
+                .read(settingsProvider.notifier)
+                .set('break_duration', '$v');
+          }
+        },
+      ),
+    );
+  }
+}
+
+// ── Section header ───────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;

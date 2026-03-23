@@ -6,6 +6,7 @@ import 'pages/dashboard_page.dart';
 import 'pages/timeline_page.dart';
 import 'pages/focus_page.dart';
 import 'pages/categories_page.dart';
+import 'pages/reports_page.dart';
 import 'pages/settings_page.dart';
 import 'providers/providers.dart';
 
@@ -35,6 +36,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         NavSection.dashboard  => const DashboardPage(),
         NavSection.timeline   => const TimelinePage(),
         NavSection.focus      => const FocusPage(),
+        NavSection.reports    => const ReportsPage(),
         NavSection.categories => const CategoriesPage(),
         NavSection.settings   => const SettingsPage(),
       };

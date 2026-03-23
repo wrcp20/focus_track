@@ -14,15 +14,16 @@ class DashboardPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final today = ref.watch(selectedDateProvider);
     final sessionsAsync = ref.watch(dailySessionsProvider(today));
-    final durMapAsync   = ref.watch(durationByCategoryProvider(today));
+    final durMapAsync = ref.watch(durationByCategoryProvider(today));
     final categoriesAsync = ref.watch(categoriesProvider);
     final tracker = ref.watch(trackerNotifierProvider);
+    final prodAsync = ref.watch(productiveStatsProvider(today));
+    final hourlyAsync = ref.watch(hourlyDistributionProvider(today));
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: CustomScrollView(
         slivers: [
-          // AppBar
           SliverAppBar(
             floating: true,
             backgroundColor: Theme.of(context).colorScheme.surface,
@@ -31,28 +32,34 @@ class DashboardPage extends ConsumerWidget {
               children: [
                 Text(
                   DateFormat('EEEE, d MMMM yyyy', 'es').format(today),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'Dashboard',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
                       ),
                 ),
               ],
             ),
             actions: [
-              // Botón tracking solo en Windows
               if (!kIsWeb)
                 tracker.when(
                   data: (state) => FilledButton.icon(
                     onPressed: () {
                       if (state.isTracking) {
-                        ref.read(trackerNotifierProvider.notifier).stopTracking();
+                        ref
+                            .read(trackerNotifierProvider.notifier)
+                            .stopTracking();
                       } else {
-                        ref.read(trackerNotifierProvider.notifier).startTracking();
+                        ref
+                            .read(trackerNotifierProvider.notifier)
+                            .startTracking();
                       }
                     },
                     icon: Icon(
@@ -76,50 +83,99 @@ class DashboardPage extends ConsumerWidget {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
 
+                // Banner web
+                if (kIsWeb) ...[
+                  _WebModeBanner(),
+                  const SizedBox(height: 24),
+                ],
+
                 // Ventana activa (solo Windows)
                 if (!kIsWeb)
                   tracker.when(
-                    data: (state) => state.isTracking && state.currentWindow != null
-                        ? _ActiveWindowCard(
-                            appName: state.currentWindow!.appName,
-                            title: state.currentWindow!.windowTitle,
-                          )
-                        : const SizedBox.shrink(),
+                    data: (state) =>
+                        state.isTracking && state.currentWindow != null
+                            ? _ActiveWindowCard(
+                                appName: state.currentWindow!.appName,
+                                title: state.currentWindow!.windowTitle,
+                              )
+                            : const SizedBox.shrink(),
                     loading: () => const SizedBox.shrink(),
                     error: (e, _) => const SizedBox.shrink(),
                   ),
 
                 if (!kIsWeb) const SizedBox(height: 24),
 
-                // Web banner
-                if (kIsWeb)
-                  _WebModeBanner(),
-
-                if (kIsWeb) const SizedBox(height: 24),
-
-                // Resumen total del día
-                durMapAsync.when(
-                  data: (durMap) {
-                    final totalSec = durMap.values.fold<int>(
-                        0, (acc, d) => acc + d.inSeconds);
-                    final total = Duration(seconds: totalSec);
-                    return _SummaryRow(total: total, sessions: sessionsAsync.value?.length ?? 0);
+                // 3 tarjetas de resumen
+                prodAsync.when(
+                  data: (prod) {
+                    final pct = prod.total.inSeconds > 0
+                        ? (prod.productive.inSeconds /
+                                prod.total.inSeconds *
+                                100)
+                            .round()
+                        : 0;
+                    return Row(children: [
+                      Expanded(
+                        child: _StatCard(
+                          label: 'Tiempo total',
+                          value: DurationText.format(prod.total),
+                          icon: Icons.access_time,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          label: 'Actividades',
+                          value:
+                              '${sessionsAsync.value?.length ?? 0}',
+                          icon: Icons.list_alt,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          label: '% Productivo',
+                          value: '$pct%',
+                          icon: Icons.bolt,
+                          color: pct >= 70
+                              ? Colors.green
+                              : pct >= 40
+                                  ? Colors.orange
+                                  : Colors.red,
+                        ),
+                      ),
+                    ]);
                   },
-                  loading: () => const _SummaryRow(total: Duration.zero, sessions: 0),
+                  loading: () => const _StatCardsSkeleton(),
                   error: (e, _) => const SizedBox.shrink(),
                 ),
 
                 const SizedBox(height: 24),
 
-                // Gráfica de torta + lista
+                // Gráfica de distribución horaria
+                hourlyAsync.when(
+                  data: (hourly) => hourly.isNotEmpty
+                      ? _HourlyChart(hourly: hourly)
+                      : const SizedBox.shrink(),
+                  loading: () => const SizedBox.shrink(),
+                  error: (e, _) => const SizedBox.shrink(),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Gráfica de torta por categoría
                 categoriesAsync.when(
                   data: (cats) => durMapAsync.when(
                     data: (durMap) =>
                         _CategoryBreakdown(durMap: durMap, categories: cats),
-                    loading: () => const Center(child: CircularProgressIndicator()),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
                     error: (e, _) => Text('Error: $e'),
                   ),
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (e, _) => Text('Error: $e'),
                 ),
 
@@ -127,8 +183,10 @@ class DashboardPage extends ConsumerWidget {
 
                 // Últimas sesiones
                 sessionsAsync.when(
-                  data: (sessions) => _RecentSessions(sessions: sessions.reversed.take(10).toList()),
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  data: (sessions) => _RecentSessions(
+                      sessions: sessions.reversed.take(10).toList()),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (e, _) => Text('Error: $e'),
                 ),
               ]),
@@ -159,9 +217,7 @@ class _ActiveWindowCard extends StatelessWidget {
               width: 10,
               height: 10,
               decoration: const BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
+                  color: Colors.green, shape: BoxShape.circle),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -175,27 +231,24 @@ class _ActiveWindowCard extends StatelessWidget {
                                 .onPrimaryContainer
                                 .withValues(alpha: 0.7),
                           )),
-                  Text(
-                    appName,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
+                  Text(appName,
+                      style:
+                          Theme.of(context).textTheme.titleSmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onPrimaryContainer,
+                                fontWeight: FontWeight.bold,
+                              )),
                   if (title != null)
-                    Text(
-                      title!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer
-                                .withValues(alpha: 0.8),
-                          ),
-                    ),
+                    Text(title!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onPrimaryContainer
+                                  .withValues(alpha: 0.8),
+                            )),
                 ],
               ),
             ),
@@ -223,20 +276,20 @@ class _WebModeBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Modo Web — Sin rastreo automático',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSecondaryContainer)),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSecondaryContainer,
+                          )),
                   Text(
-                    'El rastreo automático requiere la app de Windows. Aquí puedes ver reportes y gestionar sesiones de foco.',
+                    'El rastreo automático requiere la app de Windows. '
+                    'Aquí puedes ver reportes y gestionar sesiones de foco.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSecondaryContainer),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSecondaryContainer,
+                        ),
                   ),
                 ],
               ),
@@ -244,37 +297,6 @@ class _WebModeBanner extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _SummaryRow extends StatelessWidget {
-  final Duration total;
-  final int sessions;
-  const _SummaryRow({required this.total, required this.sessions});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            label: 'Tiempo total',
-            value: DurationText.format(total),
-            icon: Icons.access_time,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _StatCard(
-            label: 'Actividades',
-            value: sessions.toString(),
-            icon: Icons.list_alt,
-            color: Theme.of(context).colorScheme.secondary,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -307,7 +329,112 @@ class _StatCard extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.bold)),
             Text(label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    color:
+                        Theme.of(context).colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCardsSkeleton extends StatelessWidget {
+  const _StatCardsSkeleton();
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: List.generate(
+          3,
+          (_) => Expanded(
+                child: Card(
+                    child: Container(height: 100, color: Colors.transparent)),
+              )),
+    );
+  }
+}
+
+class _HourlyChart extends StatelessWidget {
+  final Map<int, Duration> hourly;
+  const _HourlyChart({required this.hourly});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final maxMinutes =
+        hourly.values.map((d) => d.inMinutes).fold(1, (a, b) => a > b ? a : b);
+
+    final bars = List.generate(24, (hour) {
+      final minutes = hourly[hour]?.inMinutes.toDouble() ?? 0;
+      return BarChartGroupData(
+        x: hour,
+        barRods: [
+          BarChartRodData(
+            toY: minutes,
+            color: theme.colorScheme.primary,
+            width: 8,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+          ),
+        ],
+      );
+    });
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Actividad por hora',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 140,
+              child: BarChart(
+                BarChartData(
+                  maxY: maxMinutes.toDouble() * 1.2,
+                  barGroups: bars,
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (_) => FlLine(
+                      color: theme.colorScheme.outline.withValues(alpha: 0.15),
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 4,
+                        getTitlesWidget: (value, _) => Text(
+                          '${value.toInt()}h',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                    ),
+                  ),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) =>
+                          BarTooltipItem(
+                        '${group.x}h\n${rod.toY.round()}m',
+                        TextStyle(
+                            color: theme.colorScheme.onPrimary, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -352,9 +479,8 @@ class _CategoryBreakdown extends StatelessWidget {
       );
     }
 
-    final total = durMap.values.fold<int>(0, (a, d) => a + d.inSeconds);
-
-    // Construir secciones del pie chart
+    final total =
+        durMap.values.fold<int>(0, (a, d) => a + d.inSeconds);
     final sections = <PieChartSectionData>[];
     final entries = durMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -366,8 +492,8 @@ class _CategoryBreakdown extends StatelessWidget {
       final color = cat != null
           ? _hexColor(cat.color)
           : Theme.of(context).colorScheme.outline;
-      final pct = total > 0 ? entry.value.inSeconds / total * 100 : 0.0;
-
+      final pct =
+          total > 0 ? entry.value.inSeconds / total * 100 : 0.0;
       sections.add(PieChartSectionData(
         value: entry.value.inSeconds.toDouble(),
         color: color,
@@ -385,8 +511,10 @@ class _CategoryBreakdown extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Por categoría',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold)),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,7 +576,6 @@ class _RecentSessions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (sessions.isEmpty) return const SizedBox.shrink();
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -456,8 +583,10 @@ class _RecentSessions extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Actividad reciente',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold)),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ...sessions.map((s) => Padding(
                   padding: const EdgeInsets.only(bottom: 6),
@@ -472,7 +601,8 @@ class _RecentSessions extends StatelessWidget {
                       Expanded(
                           child: Text(s.appName,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodyMedium)),
+                              style:
+                                  Theme.of(context).textTheme.bodyMedium)),
                       DurationText(s.duration,
                           style: Theme.of(context)
                               .textTheme

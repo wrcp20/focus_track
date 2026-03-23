@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_colors.dart';
+import 'presentation/providers/providers.dart';
 import 'presentation/shell.dart';
 
 Future<void> main() async {
@@ -26,11 +27,12 @@ Future<void> main() async {
   runApp(const ProviderScope(child: FocusTrackApp()));
 }
 
-class FocusTrackApp extends StatelessWidget {
+class FocusTrackApp extends ConsumerWidget {
   const FocusTrackApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'FocusTrack',
       debugShowCheckedModeBanner: false,
@@ -48,7 +50,7 @@ class FocusTrackApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       home: const AppShell(),
     );
   }

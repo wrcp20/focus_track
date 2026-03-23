@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 
-enum NavSection { dashboard, timeline, focus, categories, settings }
+enum NavSection { dashboard, timeline, focus, reports, categories, settings }
 
 class AppSidebar extends StatelessWidget {
   final NavSection current;
@@ -70,6 +70,13 @@ class AppSidebar extends StatelessWidget {
             label: 'Foco',
             selected: current == NavSection.focus,
             onTap: () => onSelect(NavSection.focus),
+          ),
+          _NavItem(
+            icon: Icons.bar_chart_outlined,
+            iconSelected: Icons.bar_chart,
+            label: 'Reportes',
+            selected: current == NavSection.reports,
+            onTap: () => onSelect(NavSection.reports),
           ),
 
           const Spacer(),
