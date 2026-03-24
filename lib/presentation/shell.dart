@@ -24,10 +24,11 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void initState() {
     super.initState();
-    // Arrancar rastreo automático en Windows al iniciar
+    // Arrancar rastreo automático y servidor de extensión en Windows al iniciar
     if (!kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ref.read(trackerNotifierProvider.notifier).startTracking();
+        ref.read(browserServerProvider).start();
       });
     }
   }

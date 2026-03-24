@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "FocusTrack",
+  "version": "1.0.0",
+  "description": "Reporta la URL activa a FocusTrack para categorización automática de productividad.",
+  "permissions": ["tabs", "activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FocusTrack"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

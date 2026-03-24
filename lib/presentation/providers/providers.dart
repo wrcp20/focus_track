@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../core/services/browser_extension_server.dart';
 import '../../core/services/claude_ai_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/window_tracker_service.dart';
@@ -36,6 +37,18 @@ final claudeAIServiceProvider = Provider<ClaudeAIService>((ref) {
   final settings = ref.watch(settingsProvider);
   final key = settings.value?['claude_api_key'];
   return ClaudeAIService((key?.isEmpty ?? true) ? null : key);
+});
+
+// ─── Browser Extension Server ─────────────────────────────────────────────
+
+final browserServerProvider = Provider<BrowserExtensionServer>((ref) {
+  final server = BrowserExtensionServer();
+  ref.onDispose(server.stop);
+  return server;
+});
+
+final browserActivityProvider = StreamProvider<BrowserActivity>((ref) {
+  return ref.watch(browserServerProvider).activities;
 });
 
 // ─── WindowTracker ────────────────────────────────────────────────────────
@@ -371,6 +384,10 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
   @override
   Future<TrackerState> build() async {
     ref.onDispose(() => _sub?.cancel());
+    // Escuchar URLs reportadas por la extensión de navegador
+    ref.listen(browserActivityProvider, (_, next) {
+      next.whenData((activity) => _onBrowserActivity(activity));
+    });
     return const TrackerState();
   }
 
@@ -458,6 +475,68 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
     ));
 
     // 6. Invalidar providers del día
+    final today = DateTime.now();
+    final date = DateTime(today.year, today.month, today.day);
+    ref.invalidate(dailySessionsProvider(date));
+    ref.invalidate(durationByCategoryProvider(date));
+    ref.invalidate(hourlyDistributionProvider(date));
+    ref.invalidate(productiveStatsProvider(date));
+  }
+
+  static const _browserApps = [
+    'chrome', 'firefox', 'edge', 'brave', 'safari', 'opera', 'arc', 'vivaldi',
+  ];
+
+  /// Maneja URL recibida desde la extensión de navegador.
+  /// Si la ventana activa es un navegador, re-categoriza según la URL.
+  Future<void> _onBrowserActivity(BrowserActivity activity) async {
+    final currentWindow = state.value?.currentWindow;
+    if (currentWindow == null) return;
+
+    final appLower = currentWindow.appName.toLowerCase();
+    final isBrowser = _browserApps.any(appLower.contains);
+    if (!isBrowser) return;
+
+    final cats = await ref.read(categoryRepoProvider).getAllCategories();
+    final catNames = cats.map((c) => c.name).toList();
+
+    final suggestion = await ref
+        .read(claudeAIServiceProvider)
+        .categorizeApp(
+          currentWindow.appName,
+          activity.title ?? currentWindow.windowTitle,
+          catNames,
+          url: activity.url,
+        );
+
+    if (suggestion == null) return;
+
+    final category =
+        cats.where((c) => c.name == suggestion.category).firstOrNull;
+
+    // Terminar sesión activa y empezar una nueva con la categoría correcta
+    if (_activeSessionId != null) {
+      await ref
+          .read(activityRepoProvider)
+          .endSession(_activeSessionId!, DateTime.now());
+      _activeSessionId = null;
+    }
+
+    final session = ActivitySession(
+      appName: currentWindow.appName,
+      windowTitle: activity.title ?? currentWindow.windowTitle,
+      startedAt: DateTime.now(),
+      categoryId: category?.id,
+      isProductive: category?.productive ?? true,
+    );
+    _activeSessionId =
+        await ref.read(activityRepoProvider).startSession(session);
+
+    state = AsyncData(state.value!.copyWith(
+      activeSession: session.copyWith(id: _activeSessionId),
+      lastAiCategorized: true,
+    ));
+
     final today = DateTime.now();
     final date = DateTime(today.year, today.month, today.day);
     ref.invalidate(dailySessionsProvider(date));

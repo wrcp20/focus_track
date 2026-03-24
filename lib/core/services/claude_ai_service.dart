@@ -21,9 +21,63 @@ class ClaudeAIService {
   // ── Keyword fallback (sin API, gratis) ─────────────────────────────────────
 
   ({String category, bool isProductive})? _keywordMatch(
-      String appName, String? windowTitle) {
+      String appName, String? windowTitle, {String? url}) {
     final lower = appName.toLowerCase();
     final title = (windowTitle ?? '').toLowerCase();
+    final u = (url ?? '').toLowerCase();
+
+    // ── URL-specific matching (más preciso que app name) ────────────────────
+    if (u.isNotEmpty) {
+      const codeUrls = [
+        'github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com',
+        'developer.mozilla.org', 'docs.flutter.dev', 'pub.dev',
+        'npmjs.com', 'pypi.org', 'crates.io', 'pkg.go.dev',
+        'codepen.io', 'jsfiddle.net', 'codesandbox.io', 'replit.com',
+        'leetcode.com', 'hackerrank.com', 'codeforces.com',
+      ];
+      if (codeUrls.any(u.contains)) {
+        return (category: 'Programación', isProductive: true);
+      }
+
+      const productivityUrls = [
+        'notion.so', 'docs.google.com', 'sheets.google.com',
+        'slides.google.com', 'drive.google.com', 'trello.com',
+        'asana.com', 'clickup.com', 'linear.app', 'monday.com',
+        'airtable.com', 'basecamp.com', 'confluence.atlassian.com',
+        'jira.atlassian.com', 'figma.com', 'miro.com',
+      ];
+      if (productivityUrls.any(u.contains)) {
+        return (category: 'Productividad', isProductive: true);
+      }
+
+      const commUrls = [
+        'mail.google.com', 'outlook.live.com', 'outlook.office.com',
+        'meet.google.com', 'zoom.us', 'teams.microsoft.com',
+        'web.telegram.org', 'web.whatsapp.com', 'slack.com',
+        'discord.com', 'mattermost.com',
+      ];
+      if (commUrls.any(u.contains)) {
+        return (category: 'Comunicación', isProductive: true);
+      }
+
+      const entertainmentUrls = [
+        'youtube.com', 'netflix.com', 'twitch.tv', 'hulu.com',
+        'disneyplus.com', 'primevideo.com', 'crunchyroll.com',
+        'plex.tv', 'open.spotify.com',
+      ];
+      if (entertainmentUrls.any(u.contains)) {
+        return (category: 'Entretenimiento', isProductive: false);
+      }
+
+      const socialUrls = [
+        'twitter.com', 'x.com', 'facebook.com', 'instagram.com',
+        'tiktok.com', 'reddit.com', 'pinterest.com', 'tumblr.com',
+        'mastodon.social', 'threads.net', 'linkedin.com',
+      ];
+      if (socialUrls.any(u.contains)) {
+        return (category: 'Redes Sociales', isProductive: false);
+      }
+    }
 
     const codeApps = [
       'code', 'vscode', 'visual studio', 'intellij', 'android studio',
@@ -93,9 +147,10 @@ class ClaudeAIService {
   /// Retorna la categoría y si es productiva.
   /// Primero intenta keyword matching offline; si no hay match, llama a Claude.
   Future<({String category, bool isProductive})?> categorizeApp(
-      String appName, String? windowTitle, List<String> availableCategories) async {
+      String appName, String? windowTitle, List<String> availableCategories,
+      {String? url}) async {
     // 1. Keyword fallback (sin costo, instantáneo)
-    final fallback = _keywordMatch(appName, windowTitle);
+    final fallback = _keywordMatch(appName, windowTitle, url: url);
     if (fallback != null) return fallback;
 
     // 2. Claude API (solo si hay API key)
@@ -106,6 +161,7 @@ class ClaudeAIService {
 
 App: $appName
 Título de ventana: ${windowTitle ?? 'N/A'}
+URL: ${url ?? 'N/A'}
 Categorías disponibles: $catList
 
 Responde SOLO con JSON válido (sin markdown): {"category": "nombre", "is_productive": true}
