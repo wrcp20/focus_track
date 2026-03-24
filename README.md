@@ -1,17 +1,31 @@
-# focus_track
+# FocusTrack
 
-A new Flutter project.
+Alternativa open-source a [Rize.io](https://rize.io) — rastreador automático de tiempo, Pomodoro y analíticas de productividad.
 
-## Getting Started
+Plataformas: **Windows** + **Web**
 
-This project is a starting point for a Flutter application.
+## Características
 
-A few resources to get you started if this is your first Flutter project:
+- Rastreo automático de ventanas activas (Windows)
+- Timer Pomodoro con FocusQualityScore
+- Dashboard con distribución horaria
+- Timeline visual tipo Gantt
+- Reportes semanales con top apps y racha
+- Tema claro/oscuro/sistema
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Stack
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Flutter (Windows + Web)
+- SQLite (sqflite_common_ffi / sqflite_common_ffi_web)
+- Riverpod 2.x
+- fl_chart
+
+## Ejecutar
+
+```bash
+# Windows
+flutter run -d windows
+
+# Web
+flutter run -d chrome
+```
