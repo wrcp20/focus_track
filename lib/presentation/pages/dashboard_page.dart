@@ -181,6 +181,11 @@ class DashboardPage extends ConsumerWidget {
 
                 const SizedBox(height: 24),
 
+                // Resumen IA del día
+                _AiSummaryCard(date: today),
+
+                const SizedBox(height: 24),
+
                 // Últimas sesiones
                 sessionsAsync.when(
                   data: (sessions) => _RecentSessions(
@@ -568,6 +573,76 @@ class _CategoryBreakdown extends StatelessWidget {
     );
   }
 }
+
+// ─── AI Summary Card ──────────────────────────────────────────────────────────
+
+class _AiSummaryCard extends ConsumerWidget {
+  final DateTime date;
+  const _AiSummaryCard({required this.date});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final aiState = ref.watch(aiSummaryProvider);
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.auto_awesome,
+                    color: theme.colorScheme.primary, size: 20),
+                const SizedBox(width: 8),
+                Text('Resumen del día',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const Spacer(),
+                if (!aiState.isLoading)
+                  TextButton.icon(
+                    onPressed: () =>
+                        ref.read(aiSummaryProvider.notifier).generate(date),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(
+                        aiState.summary == null ? 'Generar' : 'Regenerar'),
+                  ),
+              ],
+            ),
+            if (aiState.isLoading) ...[
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              Text('Claude está analizando tu jornada...',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant)),
+            ] else if (aiState.error != null) ...[
+              const SizedBox(height: 8),
+              Text(aiState.error!,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.error)),
+            ] else if (aiState.summary != null) ...[
+              const SizedBox(height: 12),
+              Text(aiState.summary!,
+                  style:
+                      theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+            ] else ...[
+              const SizedBox(height: 8),
+              Text(
+                'Genera un resumen inteligente de tu productividad usando Claude AI.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Recent Sessions ──────────────────────────────────────────────────────────
 
 class _RecentSessions extends StatelessWidget {
   final List sessions;

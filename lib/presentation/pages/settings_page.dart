@@ -119,6 +119,11 @@ class SettingsPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
+          // ── IA con Claude ──
+          _SectionHeader('Inteligencia Artificial'),
+          const Card(child: _ApiKeyTile()),
+          const SizedBox(height: 24),
+
           // ── Acerca de ──
           _SectionHeader('Acerca de'),
           Card(
@@ -215,6 +220,107 @@ class _BreakDurationTile extends ConsumerWidget {
                 .set('break_duration', '$v');
           }
         },
+      ),
+    );
+  }
+}
+
+// ── API Key tile ─────────────────────────────────────────────────────────────
+
+class _ApiKeyTile extends ConsumerStatefulWidget {
+  const _ApiKeyTile();
+
+  @override
+  ConsumerState<_ApiKeyTile> createState() => _ApiKeyTileState();
+}
+
+class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
+  bool _obscure = true;
+  final _ctrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final val = ref.read(settingsProvider).value?['claude_api_key'] ?? '';
+      _ctrl.text = val;
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    ref
+        .read(settingsProvider.notifier)
+        .set('claude_api_key', _ctrl.text.trim());
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('API key guardada'),
+          duration: Duration(seconds: 2)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, ) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.vpn_key_outlined, size: 20),
+              const SizedBox(width: 12),
+              Text('Clave API de Claude',
+                  style: Theme.of(context).textTheme.bodyMedium),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Habilita auto-categorización IA y resúmenes del día',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            obscureText: _obscure,
+            decoration: InputDecoration(
+              hintText: 'sk-ant-api03-...',
+              border: const OutlineInputBorder(),
+              isDense: true,
+              suffixIcon: IconButton(
+                icon: Icon(
+                    _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+            onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Consigue tu key en console.anthropic.com',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color:
+                            Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+              FilledButton.tonal(
+                onPressed: _save,
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -32,6 +32,9 @@ dependencies:
   # Gráficas
   fl_chart: ^0.70.2
 
+  # HTTP para Claude API
+  http: ^1.2.0
+
   # Utilidades
   intl: ^0.20.2
   uuid: ^4.5.1

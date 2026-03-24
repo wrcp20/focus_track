@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import '../../core/services/claude_ai_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/window_tracker_service.dart';
 import '../../core/services/window_info.dart';
@@ -12,6 +14,7 @@ import '../../data/repositories/focus_repository_impl.dart';
 import '../../domain/entities/activity_session.dart';
 import '../../domain/entities/app_category.dart';
 import '../../domain/entities/focus_session.dart';
+import '../../domain/entities/tracking_rule.dart';
 
 // ─── Repositorios ─────────────────────────────────────────────────────────
 
@@ -25,6 +28,14 @@ final notificationServiceProvider = Provider((ref) {
   final service = NotificationService();
   service.init();
   return service;
+});
+
+// ─── Claude AI ────────────────────────────────────────────────────────────
+
+final claudeAIServiceProvider = Provider<ClaudeAIService>((ref) {
+  final settings = ref.watch(settingsProvider);
+  final key = settings.value?['claude_api_key'];
+  return ClaudeAIService((key?.isEmpty ?? true) ? null : key);
 });
 
 // ─── WindowTracker ────────────────────────────────────────────────────────
@@ -243,6 +254,80 @@ final streakProvider = FutureProvider<int>((ref) async {
   return streak;
 });
 
+// ─── Resumen IA del día ───────────────────────────────────────────────────
+
+class AiSummaryState {
+  final bool isLoading;
+  final String? summary;
+  final String? error;
+
+  const AiSummaryState({
+    this.isLoading = false,
+    this.summary,
+    this.error,
+  });
+}
+
+final aiSummaryProvider =
+    StateNotifierProvider<AiSummaryNotifier, AiSummaryState>(
+        (ref) => AiSummaryNotifier(ref));
+
+class AiSummaryNotifier extends StateNotifier<AiSummaryState> {
+  AiSummaryNotifier(this._ref) : super(const AiSummaryState());
+  final Ref _ref;
+
+  Future<void> generate(DateTime date) async {
+    state = const AiSummaryState(isLoading: true);
+
+    final service = _ref.read(claudeAIServiceProvider);
+    if (!service.hasApiKey) {
+      state = const AiSummaryState(
+          error: 'Configura tu API key de Claude en Configuración');
+      return;
+    }
+
+    try {
+      final prod = await _ref.read(productiveStatsProvider(date).future);
+      final sessions = await _ref.read(dailySessionsProvider(date).future);
+      final focusSessions =
+          await _ref.read(focusSessionsDailyProvider(date).future);
+
+      // Top apps del día
+      final appDurations = <String, Duration>{};
+      for (final s in sessions) {
+        appDurations[s.appName] =
+            (appDurations[s.appName] ?? Duration.zero) + s.duration;
+      }
+      final topApps = (appDurations.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value)))
+          .take(5)
+          .map((e) => e.key)
+          .toList();
+
+      final dateStr = DateFormat('EEEE d MMMM', 'es').format(date);
+
+      final summary = await service.generateDailySummary(
+        date: dateStr,
+        totalTime: prod.total,
+        productiveTime: prod.productive,
+        focusSessionCount: focusSessions.length,
+        topApps: topApps,
+      );
+
+      if (summary != null) {
+        state = AiSummaryState(summary: summary);
+      } else {
+        state =
+            const AiSummaryState(error: 'Error al conectar con Claude API');
+      }
+    } catch (e) {
+      state = AiSummaryState(error: 'Error: $e');
+    }
+  }
+
+  void clear() => state = const AiSummaryState();
+}
+
 // ─── Tracker (rastreo automático) ────────────────────────────────────────
 
 final trackerNotifierProvider =
@@ -252,11 +337,13 @@ class TrackerState {
   final bool isTracking;
   final WindowInfo? currentWindow;
   final ActivitySession? activeSession;
+  final bool lastAiCategorized;
 
   const TrackerState({
     this.isTracking = false,
     this.currentWindow,
     this.activeSession,
+    this.lastAiCategorized = false,
   });
 
   TrackerState copyWith({
@@ -264,18 +351,22 @@ class TrackerState {
     WindowInfo? currentWindow,
     ActivitySession? activeSession,
     bool clearSession = false,
+    bool? lastAiCategorized,
   }) =>
       TrackerState(
         isTracking: isTracking ?? this.isTracking,
         currentWindow: currentWindow ?? this.currentWindow,
         activeSession:
             clearSession ? null : (activeSession ?? this.activeSession),
+        lastAiCategorized: lastAiCategorized ?? this.lastAiCategorized,
       );
 }
 
 class TrackerNotifier extends AsyncNotifier<TrackerState> {
   StreamSubscription<WindowInfo?>? _sub;
   int? _activeSessionId;
+  // Contador de sugerencias IA por (app, categoría) para auto-crear reglas
+  final Map<String, int> _aiSuggestionCounts = {};
 
   @override
   Future<TrackerState> build() async {
@@ -302,6 +393,7 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
   }
 
   Future<void> _onWindowChanged(WindowInfo? info) async {
+    // 1. Cerrar sesión anterior
     if (_activeSessionId != null) {
       await ref
           .read(activityRepoProvider)
@@ -310,15 +402,35 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
     }
 
     if (info == null) {
-      state = AsyncData(
-          state.value!.copyWith(currentWindow: null, clearSession: true));
+      state = AsyncData(state.value!.copyWith(
+          currentWindow: null, clearSession: true, lastAiCategorized: false));
       return;
     }
 
-    final category = await ref
+    // 2. Determinar categoría: reglas DB → IA → sin categoría
+    AppCategory? category = await ref
         .read(categoryRepoProvider)
         .matchCategory(info.appName, info.windowTitle, null);
 
+    bool usedAi = false;
+    if (category == null) {
+      final cats = await ref.read(categoryRepoProvider).getAllCategories();
+      final catNames = cats.map((c) => c.name).toList();
+      final suggestion = await ref
+          .read(claudeAIServiceProvider)
+          .categorizeApp(info.appName, info.windowTitle, catNames);
+
+      if (suggestion != null) {
+        category =
+            cats.where((c) => c.name == suggestion.category).firstOrNull;
+        if (category != null) {
+          usedAi = true;
+          await _trackAiSuggestion(info.appName, category);
+        }
+      }
+    }
+
+    // 3. Crear nueva sesión
     final session = ActivitySession(
       appName: info.appName,
       windowTitle: info.windowTitle,
@@ -330,7 +442,7 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
     _activeSessionId =
         await ref.read(activityRepoProvider).startSession(session);
 
-    // Si hay sesión de foco activa y la app es NO productiva → interrupción
+    // 4. Registrar interrupción si hay sesión de foco activa y app no productiva
     final focusState = ref.read(focusNotifierProvider).value;
     if (focusState != null &&
         focusState.isRunning &&
@@ -338,17 +450,38 @@ class TrackerNotifier extends AsyncNotifier<TrackerState> {
       ref.read(focusNotifierProvider.notifier).recordInterruption();
     }
 
+    // 5. Actualizar estado
     state = AsyncData(state.value!.copyWith(
       currentWindow: info,
       activeSession: session.copyWith(id: _activeSessionId),
+      lastAiCategorized: usedAi,
     ));
 
+    // 6. Invalidar providers del día
     final today = DateTime.now();
     final date = DateTime(today.year, today.month, today.day);
     ref.invalidate(dailySessionsProvider(date));
     ref.invalidate(durationByCategoryProvider(date));
     ref.invalidate(hourlyDistributionProvider(date));
     ref.invalidate(productiveStatsProvider(date));
+  }
+
+  /// Rastrea sugerencias IA; después de 3 veces crea regla automáticamente.
+  Future<void> _trackAiSuggestion(String appName, AppCategory cat) async {
+    if (cat.id == null) return;
+    final key = '${appName}__${cat.id}';
+    _aiSuggestionCounts[key] = (_aiSuggestionCounts[key] ?? 0) + 1;
+    if (_aiSuggestionCounts[key]! >= 3) {
+      try {
+        await ref.read(categoryRepoProvider).createRule(TrackingRule(
+              pattern: appName,
+              matchType: MatchType.app,
+              categoryId: cat.id!,
+              priority: 5,
+            ));
+        _aiSuggestionCounts.remove(key);
+      } catch (_) {}
+    }
   }
 }
 
